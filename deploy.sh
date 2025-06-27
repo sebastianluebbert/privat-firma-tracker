@@ -1,3 +1,4 @@
+
 #!/bin/bash
 
 # Expense Tracker - Hauptinstallations-Script
@@ -151,27 +152,31 @@ setup_app() {
     # Backend-Dateien nach /var/www/expense-tracker/backend kopieren
     cp -r . $BACKEND_DIR/
     
-    # PM2 App starten (vor Frontend-Build!)
+    # PM2 stoppen falls läuft
+    pm2 delete expense-backend 2>/dev/null || true
+    
+    # PM2 App starten
     print_status "Starte Backend mit PM2..."
     cd $BACKEND_DIR
-    pm2 delete expense-backend 2>/dev/null || true
     pm2 start server.js --name "expense-backend"
     pm2 save
     pm2 startup --silent || true
 
-    # Warte kurz bis Backend läuft
-    sleep 3
+    # Warte bis Backend vollständig gestartet ist
+    print_status "Warte auf Backend-Start..."
+    sleep 5
     
-    # Backend Health Check
+    # Backend Health Check mit mehreren Versuchen
     print_status "Prüfe Backend-Verfügbarkeit..."
-    for i in {1..10}; do
-        if curl -s http://localhost:3001/api/health > /dev/null; then
+    for i in {1..15}; do
+        if curl -s http://localhost:3001/api/health > /dev/null 2>&1; then
             print_success "Backend läuft und ist erreichbar"
             break
         fi
-        if [ $i -eq 10 ]; then
-            print_error "Backend nicht erreichbar nach 10 Versuchen"
+        if [ $i -eq 15 ]; then
+            print_error "Backend nicht erreichbar nach 15 Versuchen"
         fi
+        print_debug "Versuch $i/15: Warte auf Backend..."
         sleep 2
     done
 
@@ -179,16 +184,19 @@ setup_app() {
     print_status "Baue Frontend..."
     cd $APP_DIR
     
-    # .env für Frontend erstellen (leer für relative URLs)
-    echo "# Production: Use relative URLs through Nginx proxy" > .env
+    # .env für Frontend erstellen - IMMER relative URLs verwenden
+    cat > .env << EOF
+# Production: Use relative URLs through Nginx proxy
+# Backend wird über Nginx-Proxy unter /api/ erreichbar sein
+VITE_API_URL=
+EOF
+    
     if [ -n "$domain" ]; then
         echo "# Domain: $domain" >> .env
     else
         SERVER_IP=$(hostname -I | awk '{print $1}')
         echo "# Server IP: $SERVER_IP" >> .env
     fi
-    # Lasse VITE_API_URL leer für relative URLs
-    echo "VITE_API_URL=" >> .env
     
     npm install
     npm run build
@@ -220,7 +228,7 @@ server {
     listen 80;
     server_name $domain;
     
-    # Frontend
+    # Frontend - Root location
     location / {
         root $FRONTEND_DIR;
         try_files \$uri \$uri/ /index.html;
@@ -232,7 +240,7 @@ server {
         }
     }
     
-    # Backend API
+    # Backend API - Wichtig: Kein trailing slash nach localhost:3001
     location /api/ {
         proxy_pass http://localhost:3001/api/;
         proxy_set_header Host \$host;
@@ -241,13 +249,13 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
         
         # CORS Headers
-        add_header Access-Control-Allow-Origin \$http_origin always;
+        add_header Access-Control-Allow-Origin "*" always;
         add_header Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS" always;
         add_header Access-Control-Allow-Headers "Content-Type, Authorization" always;
         
         # Handle preflight requests
         if (\$request_method = 'OPTIONS') {
-            add_header Access-Control-Allow-Origin \$http_origin;
+            add_header Access-Control-Allow-Origin "*";
             add_header Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS";
             add_header Access-Control-Allow-Headers "Content-Type, Authorization";
             add_header Access-Control-Max-Age 1728000;
@@ -257,10 +265,11 @@ server {
         }
     }
     
-    # Health check
+    # Health check - Direkter Proxy ohne Pfad-Änderung
     location /health {
         proxy_pass http://localhost:3001/api/health;
         proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
     }
 }
 EOF
@@ -271,7 +280,7 @@ server {
     listen 80 default_server;
     listen [::]:80 default_server;
     
-    # Frontend
+    # Frontend - Root location
     location / {
         root $FRONTEND_DIR;
         try_files \$uri \$uri/ /index.html;
@@ -283,7 +292,7 @@ server {
         }
     }
     
-    # Backend API
+    # Backend API - Wichtig: Korrekte Proxy-Weiterleitung
     location /api/ {
         proxy_pass http://localhost:3001/api/;
         proxy_set_header Host \$host;
@@ -292,13 +301,13 @@ server {
         proxy_set_header X-Forwarded-Proto \$scheme;
         
         # CORS Headers
-        add_header Access-Control-Allow-Origin \$http_origin always;
+        add_header Access-Control-Allow-Origin "*" always;
         add_header Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS" always;
         add_header Access-Control-Allow-Headers "Content-Type, Authorization" always;
         
         # Handle preflight requests
         if (\$request_method = 'OPTIONS') {
-            add_header Access-Control-Allow-Origin \$http_origin;
+            add_header Access-Control-Allow-Origin "*";
             add_header Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS";
             add_header Access-Control-Allow-Headers "Content-Type, Authorization";
             add_header Access-Control-Max-Age 1728000;
@@ -312,6 +321,7 @@ server {
     location /health {
         proxy_pass http://localhost:3001/api/health;
         proxy_set_header Host \$host;
+        proxy_set_header X-Real-IP \$remote_addr;
     }
 }
 EOF
@@ -324,7 +334,10 @@ EOF
     rm -f /etc/nginx/sites-enabled/default
 
     # Nginx testen und neustarten
-    nginx -t
+    if ! nginx -t; then
+        print_error "Nginx-Konfiguration ungültig"
+    fi
+    
     systemctl restart nginx
     systemctl enable nginx
 
@@ -360,11 +373,14 @@ setup_ssl() {
     if certbot --nginx -d $domain --non-interactive --agree-tos --email admin@$domain --redirect; then
         print_success "✅ SSL-Zertifikat erfolgreich installiert!"
         
-        # Frontend .env für HTTPS aktualisieren (trotzdem relative URLs verwenden)
+        # Frontend .env für HTTPS aktualisieren (weiterhin relative URLs)
         cd $APP_DIR
-        echo "# Production: Use relative URLs through Nginx proxy" > .env
-        echo "# Domain: $domain (HTTPS enabled)" >> .env
-        echo "VITE_API_URL=" >> .env
+        cat > .env << EOF
+# Production: Use relative URLs through Nginx proxy
+# Domain: $domain (HTTPS enabled)
+# Backend wird über Nginx-Proxy unter /api/ erreichbar sein
+VITE_API_URL=
+EOF
         npm run build
         cp -r dist/* $FRONTEND_DIR/
         
@@ -395,16 +411,17 @@ perform_health_check() {
     
     print_status "🏥 Führe Health Check durch..."
 
-    # Backend Health Check
-    print_status "Prüfe Backend..."
-    if curl -s http://localhost:3001/api/health > /dev/null; then
-        print_success "✅ Backend läuft"
+    # Backend Health Check - Direkt zum Backend
+    print_status "Prüfe Backend (direkt)..."
+    if curl -s http://localhost:3001/api/health > /dev/null 2>&1; then
+        print_success "✅ Backend läuft direkt"
     else
-        print_error "❌ Backend nicht erreichbar"
+        print_error "❌ Backend nicht direkt erreichbar"
+        pm2 logs expense-backend --lines 10
         return 1
     fi
 
-    # Frontend Health Check
+    # Frontend/Nginx Health Check
     if [ -n "$domain" ]; then
         if [ "$ssl_enabled" = true ]; then
             BASE_URL="https://$domain"
@@ -417,20 +434,29 @@ perform_health_check() {
     fi
 
     print_status "Prüfe Frontend unter $BASE_URL..."
-    if curl -s "$BASE_URL" > /dev/null; then
+    if curl -s "$BASE_URL" > /dev/null 2>&1; then
         print_success "✅ Frontend erreichbar"
     else
         print_warning "⚠️  Frontend möglicherweise nicht erreichbar"
-        return 1
+    fi
+
+    # API über Nginx testen
+    print_status "Prüfe API über Nginx unter $BASE_URL/api/health..."
+    if curl -s "$BASE_URL/api/health" > /dev/null 2>&1; then
+        print_success "✅ API über Nginx erreichbar"
+    else
+        print_warning "⚠️  API über Nginx nicht erreichbar"
+        print_debug "Nginx-Fehlerlog:"
+        tail -n 5 /var/log/nginx/error.log 2>/dev/null || echo "Keine Nginx-Logs verfügbar"
     fi
 
     # PM2 Status
     print_status "Prüfe PM2 Status..."
-    pm2 list | grep expense-backend | grep online > /dev/null
-    if [ $? -eq 0 ]; then
+    if pm2 list | grep expense-backend | grep online > /dev/null; then
         print_success "✅ PM2 Backend läuft"
     else
         print_error "❌ PM2 Backend nicht aktiv"
+        pm2 status
         return 1
     fi
 
@@ -440,6 +466,7 @@ perform_health_check() {
         print_success "✅ Nginx läuft"
     else
         print_error "❌ Nginx nicht aktiv"
+        systemctl status nginx
         return 1
     fi
 
@@ -465,8 +492,8 @@ print_summary() {
             print_success "🌐 App verfügbar unter: http://$domain"
             print_warning "⚠️  SSL konnte nicht eingerichtet werden"
         fi
-        print_success "🔗 API verfügbar unter: https://$domain/api"
-        print_success "💚 Health Check: https://$domain/health"
+        print_success "🔗 API verfügbar unter: $domain/api"
+        print_success "💚 Health Check: $domain/health"
     else
         SERVER_IP=$(hostname -I | awk '{print $1}')
         print_success "🌐 App verfügbar unter: http://$SERVER_IP"
@@ -546,5 +573,5 @@ fi
 if perform_health_check "$DOMAIN" "$SSL_ENABLED"; then
     print_summary "$DOMAIN" "$SSL_ENABLED"
 else
-    print_error "Health Check fehlgeschlagen. Überprüfe die Logs."
+    print_error "Health Check fehlgeschlagen. Überprüfe die Logs mit: pm2 logs expense-backend"
 fi
