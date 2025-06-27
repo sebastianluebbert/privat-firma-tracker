@@ -34,6 +34,10 @@ print_error() {
     exit 1
 }
 
+print_debug() {
+    echo -e "${YELLOW}[DEBUG]${NC} $1"
+}
+
 # Parameter parsen
 DOMAIN=""
 for arg in "$@"
@@ -87,12 +91,16 @@ apt-get upgrade -y
 
 # Node.js 18 installieren
 print_status "Installiere Node.js 18..."
-curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
-apt-get install -y nodejs
+if ! command -v node &> /dev/null; then
+    curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+    apt-get install -y nodejs
+else
+    print_debug "Node.js bereits installiert: $(node --version)"
+fi
 
 # Zusätzliche Pakete installieren
 print_status "Installiere zusätzliche Pakete..."
-apt-get install -y git nginx ufw build-essential
+apt-get install -y git nginx ufw build-essential sqlite3
 
 # Certbot installieren wenn Domain angegeben
 if [ -n "$DOMAIN" ]; then
@@ -102,7 +110,11 @@ fi
 
 # PM2 global installieren
 print_status "Installiere PM2..."
-npm install -g pm2
+if ! command -v pm2 &> /dev/null; then
+    npm install -g pm2
+else
+    print_debug "PM2 bereits installiert"
+fi
 
 # Benutzer für die App erstellen (falls nicht vorhanden)
 if ! id "expense" &>/dev/null; then
@@ -137,19 +149,55 @@ PORT=3001
 NODE_ENV=production
 EOF
 
+# Backend starten BEVOR Frontend gebaut wird
+print_status "Starte Backend..."
+sudo -u expense pm2 delete expense-backend 2>/dev/null || true
+sudo -u expense pm2 start server.js --name "expense-backend"
+sudo -u expense pm2 save
+
+# Kurz warten bis Backend läuft
+sleep 3
+
+# Backend Health Check
+print_status "Prüfe Backend Status..."
+if curl -f http://localhost:3001/api/health > /dev/null 2>&1; then
+    print_success "Backend läuft korrekt ✓"
+else
+    print_warning "Backend noch nicht bereit, versuche weiter..."
+    sleep 5
+    if ! curl -f http://localhost:3001/api/health > /dev/null 2>&1; then
+        print_error "Backend startet nicht korrekt"
+        sudo -u expense pm2 logs expense-backend --lines 20
+        exit 1
+    fi
+fi
+
 # Frontend Build
 print_status "Baue Frontend..."
 cd $APP_DIR
-npm install
 
 # Environment für Frontend - mit oder ohne SSL
 if [ -n "$DOMAIN" ]; then
     echo "VITE_API_URL=https://$DOMAIN" > .env
+    print_debug "Frontend API URL: https://$DOMAIN"
 else
-    echo "VITE_API_URL=http://$(hostname -I | awk '{print $1}')" > .env
+    SERVER_IP=$(hostname -I | awk '{print $1}')
+    echo "VITE_API_URL=http://$SERVER_IP" > .env
+    print_debug "Frontend API URL: http://$SERVER_IP"
 fi
 
+# Node modules installieren und Frontend bauen
+npm install
 npm run build
+
+# Prüfen ob Build erfolgreich war
+if [ ! -d "dist" ] || [ ! -f "dist/index.html" ]; then
+    print_error "Frontend Build fehlgeschlagen - dist/index.html nicht gefunden"
+    ls -la dist/ || echo "dist/ Ordner existiert nicht"
+    exit 1
+fi
+
+print_debug "Frontend Build erfolgreich - $(ls -la dist/ | wc -l) Dateien erstellt"
 
 # Frontend-Dateien nach /var/www verschieben
 print_status "Kopiere Frontend-Dateien..."
@@ -157,17 +205,24 @@ rm -rf $FRONTEND_DIR
 mkdir -p $FRONTEND_DIR
 cp -r dist/* $FRONTEND_DIR/
 
+# Prüfen ob Frontend-Dateien korrekt kopiert wurden
+if [ ! -f "$FRONTEND_DIR/index.html" ]; then
+    print_error "Frontend-Dateien nicht korrekt kopiert"
+    ls -la $FRONTEND_DIR/
+    exit 1
+fi
+
+print_debug "Frontend-Dateien kopiert: $(ls -la $FRONTEND_DIR/ | wc -l) Dateien"
+
 # Berechtigungen setzen
 print_status "Setze Berechtigungen..."
 chown -R expense:www-data $APP_DIR
 chmod -R 755 $APP_DIR
 
-# PM2 Setup
-print_status "Konfiguriere PM2..."
-cd $BACKEND_DIR
-sudo -u expense pm2 start server.js --name "expense-backend"
-sudo -u expense pm2 save
-sudo -u expense pm2 startup
+# Nginx: Zuerst alle Standard-Sites deaktivieren
+print_status "Entferne Nginx Standard-Konfiguration..."
+rm -f /etc/nginx/sites-enabled/default
+rm -f /etc/nginx/sites-enabled/000-default
 
 # Nginx Konfiguration - HTTP oder HTTPS je nach Domain
 print_status "Konfiguriere Nginx..."
@@ -179,7 +234,7 @@ server {
     listen 80;
     server_name $DOMAIN;
     
-    # Temporary redirect für Certbot
+    # Temporary für Certbot
     location /.well-known/acme-challenge/ {
         root /var/www/html;
     }
@@ -188,6 +243,7 @@ server {
     location / {
         root $FRONTEND_DIR;
         try_files \$uri \$uri/ /index.html;
+        index index.html;
         
         # Cache static assets
         location ~* \.(js|css|png|jpg|jpeg|gif|ico|svg)\$ {
@@ -203,6 +259,7 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_redirect off;
     }
     
     # Health check
@@ -216,12 +273,15 @@ else
     # Nginx Konfiguration für IP-only (HTTP)
     cat > $NGINX_AVAILABLE << EOF
 server {
-    listen 80;
+    listen 80 default_server;
+    listen [::]:80 default_server;
     server_name _;
+    
+    root $FRONTEND_DIR;
+    index index.html;
     
     # Frontend
     location / {
-        root $FRONTEND_DIR;
         try_files \$uri \$uri/ /index.html;
         
         # Cache static assets
@@ -238,6 +298,7 @@ server {
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        proxy_redirect off;
     }
     
     # Health check
@@ -251,10 +312,18 @@ fi
 
 # Nginx Site aktivieren
 ln -sf $NGINX_AVAILABLE $NGINX_ENABLED
-rm -f /etc/nginx/sites-enabled/default
 
-# Nginx testen und neu starten
-nginx -t
+# Nginx Konfiguration testen
+print_status "Teste Nginx Konfiguration..."
+if ! nginx -t; then
+    print_error "Nginx Konfiguration fehlerhaft"
+    cat $NGINX_AVAILABLE
+    exit 1
+fi
+
+print_debug "Nginx Konfiguration OK"
+
+# Nginx neu starten
 systemctl restart nginx
 systemctl enable nginx
 
@@ -263,9 +332,20 @@ print_status "Konfiguriere Firewall..."
 ufw --force enable
 ufw allow ssh
 ufw allow 'Nginx Full'
-ufw allow 3001
+
+# Debug: Nginx und PM2 Status
+print_debug "=== SERVICE STATUS ==="
+print_debug "PM2 Status:"
+sudo -u expense pm2 status || true
+print_debug "Nginx Status:"
+systemctl status nginx --no-pager -l || true
+print_debug "Aktive Nginx Sites:"
+ls -la /etc/nginx/sites-enabled/
+print_debug "Frontend Dateien:"
+ls -la $FRONTEND_DIR/ | head -10
 
 # SSL-Zertifikat automatisch einrichten
+SSL_ENABLED=false
 if [ -n "$DOMAIN" ]; then
     print_status "🔒 Richte SSL-Zertifikat ein..."
     
@@ -284,11 +364,17 @@ if [ -n "$DOMAIN" ]; then
     if certbot --nginx -d $DOMAIN --non-interactive --agree-tos --email admin@$DOMAIN --redirect; then
         print_success "✅ SSL-Zertifikat erfolgreich installiert!"
         
+        # Frontend .env für HTTPS aktualisieren
+        cd $APP_DIR
+        echo "VITE_API_URL=https://$DOMAIN" > .env
+        npm run build
+        cp -r dist/* $FRONTEND_DIR/
+        
         # Auto-Renewal testen
         print_status "Teste automatische Zertifikat-Erneuerung..."
         certbot renew --dry-run
         
-        # Cron-Job für Auto-Renewal (falls nicht bereits vorhanden)
+        # Cron-Job für Auto-Renewal
         if ! crontab -l 2>/dev/null | grep -q "certbot renew"; then
             (crontab -l 2>/dev/null; echo "0 12 * * * /usr/bin/certbot renew --quiet && systemctl reload nginx") | crontab -
             print_success "Auto-Renewal Cron-Job eingerichtet"
@@ -296,20 +382,18 @@ if [ -n "$DOMAIN" ]; then
         
         SSL_ENABLED=true
     else
-        print_error "❌ SSL-Zertifikat konnte nicht installiert werden. Überprüfe DNS-Einstellungen."
+        print_warning "❌ SSL-Zertifikat konnte nicht installiert werden. App läuft weiter über HTTP."
         SSL_ENABLED=false
     fi
-else
-    SSL_ENABLED=false
 fi
 
-# Services starten
-print_status "Starte Services..."
-systemctl start nginx
+# Services final neustarten
+print_status "Starte Services neu..."
+systemctl reload nginx
 sudo -u expense pm2 restart expense-backend
 
-# Health Check
-print_status "Führe Health Check durch..."
+# Final Health Check
+print_status "Führe abschließenden Health Check durch..."
 sleep 5
 
 # Backend Health Check
@@ -317,15 +401,21 @@ if curl -f http://localhost:3001/api/health > /dev/null 2>&1; then
     print_success "Backend ist erreichbar ✓"
 else
     print_error "Backend ist nicht erreichbar ✗"
+    sudo -u expense pm2 logs expense-backend --lines 10
 fi
 
 # Frontend Health Check
 if [ -n "$DOMAIN" ] && [ "$SSL_ENABLED" = true ]; then
     # HTTPS Check
-    if curl -f https://$DOMAIN > /dev/null 2>&1; then
+    if curl -f -k https://$DOMAIN > /dev/null 2>&1; then
         print_success "Frontend (HTTPS) ist erreichbar ✓"
     else
-        print_error "Frontend (HTTPS) ist nicht erreichbar ✗"
+        print_warning "Frontend (HTTPS) nicht erreichbar, prüfe HTTP..."
+        if curl -f http://$DOMAIN > /dev/null 2>&1; then
+            print_success "Frontend (HTTP) ist erreichbar ✓"
+        else
+            print_error "Frontend ist nicht erreichbar ✗"
+        fi
     fi
 elif [ -n "$DOMAIN" ]; then
     # HTTP Check mit Domain
@@ -336,10 +426,17 @@ elif [ -n "$DOMAIN" ]; then
     fi
 else
     # IP-only Check
-    if curl -f http://localhost > /dev/null 2>&1; then
+    SERVER_IP=$(hostname -I | awk '{print $1}')
+    if curl -f http://$SERVER_IP > /dev/null 2>&1; then
         print_success "Frontend ist erreichbar ✓"
     else
         print_error "Frontend ist nicht erreichbar ✗"
+        print_debug "Versuche localhost..."
+        if curl -f http://localhost > /dev/null 2>&1; then
+            print_success "Frontend über localhost erreichbar ✓"
+        else
+            print_error "Frontend auch über localhost nicht erreichbar ✗"
+        fi
     fi
 fi
 
@@ -347,6 +444,8 @@ fi
 print_success "🎉 Installation erfolgreich abgeschlossen!"
 echo ""
 echo "📋 Zusammenfassung:"
+
+SERVER_IP=$(hostname -I | awk '{print $1}')
 
 if [ -n "$DOMAIN" ] && [ "$SSL_ENABLED" = true ]; then
     echo "   • 🔒 HTTPS Website: https://$DOMAIN"
@@ -358,13 +457,13 @@ elif [ -n "$DOMAIN" ]; then
     echo "   • 🌐 Backend API: http://$DOMAIN/api"
     echo "   • ⚠️  SSL: Konnte nicht eingerichtet werden (DNS-Problem?)"
 else
-    echo "   • 🌐 Frontend: http://$(hostname -I | awk '{print $1}')"
-    echo "   • 🌐 Backend API: http://$(hostname -I | awk '{print $1}')/api"
+    echo "   • 🌐 Frontend: http://$SERVER_IP"
+    echo "   • 🌐 Backend API: http://$SERVER_IP/api"
     echo "   • ℹ️  Für SSL mit Domain: bash deploy.sh --domain=deine-domain.com"
 fi
 
+echo "   • 📊 PM2 Status: pm2 status"
 echo "   • 📊 Logs anzeigen: pm2 logs expense-backend"
-echo "   • 🔧 PM2 Status: pm2 status"
 echo "   • 🔧 Nginx Status: systemctl status nginx"
 
 if [ -n "$DOMAIN" ] && [ "$SSL_ENABLED" = true ]; then
@@ -375,18 +474,18 @@ echo ""
 echo "🔧 Wichtige Befehle:"
 echo "   • App neustarten: pm2 restart expense-backend"
 echo "   • Logs anzeigen: pm2 logs expense-backend"
-echo "   • Update: cd $APP_DIR && git pull && npm run build && cp -r dist/* $FRONTEND_DIR/ && pm2 restart expense-backend"
+echo "   • Nginx testen: nginx -t"
+echo "   • Update: cd $APP_DIR && ./update.sh"
 
 if [ -n "$DOMAIN" ] && [ "$SSL_ENABLED" = true ]; then
     echo "   • SSL erneuern: certbot renew"
-    echo "   • SSL Status: certbot certificates"
 fi
 
 echo ""
-echo "📁 Pfade:"
+echo "📁 Wichtige Pfade:"
 echo "   • App-Verzeichnis: $APP_DIR"
-echo "   • Backend: $BACKEND_DIR"
 echo "   • Frontend: $FRONTEND_DIR"
+echo "   • Backend: $BACKEND_DIR"
 echo "   • Datenbank: $BACKEND_DIR/expenses.db"
 
 if [ -n "$DOMAIN" ] && [ "$SSL_ENABLED" = true ]; then
@@ -401,5 +500,7 @@ elif [ -n "$DOMAIN" ]; then
     print_success "🌐 Die Expense Tracker App ist unter http://$DOMAIN erreichbar!"
     print_warning "⚠️  Für SSL überprüfe deine DNS-Einstellungen und führe das Script erneut aus."
 else
-    print_success "🌐 Die Expense Tracker App ist jetzt unter http://$(hostname -I | awk '{print $1}') erreichbar!"
+    print_success "🌐 Die Expense Tracker App ist jetzt unter http://$SERVER_IP erreichbar!"
 fi
+
+print_status "🎯 Installation abgeschlossen! Bei Problemen führe 'pm2 logs expense-backend' aus."
