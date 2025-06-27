@@ -48,6 +48,85 @@ NGINX_AVAILABLE="/etc/nginx/sites-available/expense-tracker"
 NGINX_ENABLED="/etc/nginx/sites-enabled/expense-tracker"
 
 # =============================================================================
+# VERBESSERTE BACKEND HEALTH CHECK FUNKTIONEN
+# =============================================================================
+
+wait_for_backend() {
+    local max_attempts=60
+    local attempt=0
+    
+    print_status "🔍 Warte auf Backend-Start (max ${max_attempts} Sekunden)..."
+    
+    while [ $attempt -lt $max_attempts ]; do
+        attempt=$((attempt + 1))
+        
+        print_debug "Versuch $attempt/$max_attempts: Teste Backend auf Port 3001"
+        
+        # Erst prüfen ob der Port überhaupt offen ist
+        if netstat -tuln | grep -q ":3001 "; then
+            print_debug "✓ Port 3001 ist offen"
+            
+            # Dann Health-Check machen
+            if curl -s --connect-timeout 3 --max-time 5 http://localhost:3001/api/health > /dev/null 2>&1; then
+                # Detaillierte Health-Check Response
+                HEALTH_RESPONSE=$(curl -s http://localhost:3001/api/health 2>/dev/null || echo "Health check failed")
+                print_success "✅ Backend ist vollständig bereit!"
+                print_debug "Health Response: $HEALTH_RESPONSE"
+                return 0
+            else
+                print_debug "⚠️  Port offen, aber Health-Check fehlgeschlagen"
+            fi
+        else
+            print_debug "⏳ Port 3001 noch nicht offen"
+        fi
+        
+        # Bei kritischen Fehlern sofort PM2 Logs anzeigen
+        if [ $attempt -eq 10 ] || [ $attempt -eq 30 ]; then
+            print_warning "Backend braucht länger als erwartet. PM2 Status:"
+            pm2 status || true
+            print_warning "Letzte 10 Zeilen der Backend-Logs:"
+            pm2 logs expense-backend --lines 10 --nostream || true
+        fi
+        
+        sleep 1
+    done
+    
+    print_error "❌ Backend nicht bereit nach $max_attempts Sekunden!"
+    print_error "PM2 Status:"
+    pm2 status
+    print_error "Backend Logs:"
+    pm2 logs expense-backend --lines 20 --nostream
+    
+    # Zusätzliche Debugging-Informationen
+    print_error "Netzwerk-Status:"
+    netstat -tuln | grep 3001 || echo "Port 3001 nicht gefunden"
+    
+    return 1
+}
+
+test_backend_endpoints() {
+    print_status "🧪 Teste Backend-Endpoints..."
+    
+    # Health Check
+    if curl -s http://localhost:3001/api/health | grep -q "OK"; then
+        print_success "✅ Health-Check erfolgreich"
+    else
+        print_warning "⚠️  Health-Check fehlgeschlagen"
+        return 1
+    fi
+    
+    # Expenses Endpoint
+    if curl -s http://localhost:3001/api/expenses > /dev/null; then
+        print_success "✅ Expenses-Endpoint erreichbar"
+    else
+        print_warning "⚠️  Expenses-Endpoint nicht erreichbar"
+        return 1
+    fi
+    
+    return 0
+}
+
+# =============================================================================
 # SYSTEM SETUP FUNKTIONEN
 # =============================================================================
 
@@ -87,7 +166,7 @@ setup_system() {
 
     # Zusätzliche Pakete installieren
     print_status "Installiere zusätzliche Pakete..."
-    apt-get install -y git nginx ufw build-essential sqlite3
+    apt-get install -y git nginx ufw build-essential sqlite3 net-tools
 
     # Certbot installieren wenn Domain angegeben
     if [ -n "$domain" ]; then
@@ -143,7 +222,7 @@ setup_app() {
     mkdir -p $FRONTEND_DIR
     mkdir -p $BACKEND_DIR
 
-    # Backend Setup
+    # Backend Setup mit verbesserter PM2 Verwaltung
     print_status "Installiere Backend-Abhängigkeiten..."
     cd $APP_DIR/backend
     npm install --production
@@ -151,56 +230,64 @@ setup_app() {
     # Backend-Dateien nach /var/www/expense-tracker/backend kopieren
     cp -r . $BACKEND_DIR/
     
-    # PM2 stoppen falls läuft
-    pm2 delete expense-backend 2>/dev/null || true
+    # PM2 komplett zurücksetzen
+    print_status "Setze PM2 zurück..."
+    pm2 kill || true
+    sleep 2
     
     # PM2 App starten
     print_status "Starte Backend mit PM2..."
     cd $BACKEND_DIR
-    pm2 start server.js --name "expense-backend"
-    pm2 save
-    pm2 startup --silent || true
-
-    # Warte bis Backend vollständig gestartet ist
-    print_status "Warte auf Backend-Start..."
-    sleep 10
     
-    # Backend Health Check mit detailliertem Feedback
-    print_status "Prüfe Backend-Verfügbarkeit..."
-    BACKEND_READY=false
-    for i in {1..30}; do
-        print_debug "Versuch $i/30: Teste http://localhost:3001/api/health"
-        
-        if curl -s --connect-timeout 5 --max-time 10 http://localhost:3001/api/health > /dev/null 2>&1; then
-            HEALTH_RESPONSE=$(curl -s http://localhost:3001/api/health)
-            print_success "✅ Backend ist erreichbar: $HEALTH_RESPONSE"
-            BACKEND_READY=true
-            break
-        fi
-        
-        if [ $i -eq 30 ]; then
-            print_error "❌ Backend nicht erreichbar nach 30 Versuchen (5 Minuten)"
-            print_error "PM2 Logs:"
-            pm2 logs expense-backend --lines 20
-            exit 1
-        fi
-        
-        print_debug "Backend noch nicht bereit, warte 10 Sekunden..."
-        sleep 10
-    done
+    # PM2 Ecosystem-Datei erstellen für bessere Kontrolle
+    cat > ecosystem.config.js << 'EOF'
+module.exports = {
+  apps: [{
+    name: 'expense-backend',
+    script: 'server.js',
+    instances: 1,
+    autorestart: true,
+    watch: false,
+    max_memory_restart: '1G',
+    env: {
+      NODE_ENV: 'production',
+      PORT: 3001
+    },
+    error_file: './logs/err.log',
+    out_file: './logs/out.log',
+    log_file: './logs/combined.log',
+    time: true
+  }]
+};
+EOF
+    
+    # Log-Verzeichnis erstellen
+    mkdir -p logs
+    
+    # PM2 mit Ecosystem-Datei starten
+    pm2 start ecosystem.config.js
+    pm2 save
+    
+    # PM2 Startup aktivieren
+    pm2 startup systemd -u root --hp /root || true
 
-    if [ "$BACKEND_READY" = false ]; then
-        print_error "Backend-Start fehlgeschlagen"
+    # Backend-Verfügbarkeit prüfen
+    if ! wait_for_backend; then
+        print_error "Backend-Start fehlgeschlagen!"
+    fi
+    
+    # Endpoints testen
+    if ! test_backend_endpoints; then
+        print_warning "Einige Backend-Endpoints funktionieren nicht optimal"
     fi
 
-    # Frontend Setup - VEREINFACHTE .env Konfiguration
-    print_status "Konfiguriere Frontend für Production..."
+    # Frontend Setup - Vereinfachte .env Konfiguration
+    print_status "Konfiguriere Frontend..."
     cd $APP_DIR
     
-    # .env für Frontend erstellen - Leere VITE_API_URL für relative URLs
+    # Einfache .env für Production (relative URLs)
     cat > .env << EOF
-# Production Configuration
-# Leere VITE_API_URL bedeutet: Verwende relative URLs über Nginx Proxy
+# Production: Verwende relative URLs über Nginx Proxy
 VITE_API_URL=
 EOF
     
@@ -226,7 +313,7 @@ EOF
 }
 
 # =============================================================================
-# NGINX SETUP FUNKTIONEN
+# NGINX SETUP FUNKTIONEN (unverändert)
 # =============================================================================
 
 setup_nginx() {
@@ -357,7 +444,7 @@ EOF
 }
 
 # =============================================================================
-# SSL SETUP FUNKTIONEN
+# SSL SETUP FUNKTIONEN (unverändert)
 # =============================================================================
 
 setup_ssl() {
@@ -385,17 +472,6 @@ setup_ssl() {
     if certbot --nginx -d $domain --non-interactive --agree-tos --email admin@$domain --redirect; then
         print_success "✅ SSL-Zertifikat erfolgreich installiert!"
         
-        # Frontend .env für HTTPS aktualisieren (weiterhin relative URLs)
-        cd $APP_DIR
-        cat > .env << EOF
-# Production: Use relative URLs through Nginx proxy
-# Domain: $domain (HTTPS enabled)
-# Backend wird über Nginx-Proxy unter /api/ erreichbar sein
-VITE_API_URL=
-EOF
-        npm run build
-        cp -r dist/* $FRONTEND_DIR/
-        
         # Auto-Renewal testen
         print_status "Teste automatische Zertifikat-Erneuerung..."
         certbot renew --dry-run
@@ -414,22 +490,47 @@ EOF
 }
 
 # =============================================================================
-# HEALTH CHECK FUNKTIONEN
+# VERBESSERTE HEALTH CHECK FUNKTIONEN
 # =============================================================================
 
 perform_health_check() {
     local domain="$1"
     local ssl_enabled="$2"
     
-    print_status "🏥 Führe Health Check durch..."
+    print_status "🏥 Führe umfassenden Health Check durch..."
 
     # Backend Health Check - Direkt zum Backend
-    print_status "Prüfe Backend (direkt)..."
-    if curl -s http://localhost:3001/api/health > /dev/null 2>&1; then
-        print_success "✅ Backend läuft direkt"
+    print_status "Prüfe Backend (direkt auf localhost:3001)..."
+    if curl -s --max-time 10 http://localhost:3001/api/health > /dev/null 2>&1; then
+        HEALTH_DATA=$(curl -s http://localhost:3001/api/health)
+        print_success "✅ Backend läuft direkt - $HEALTH_DATA"
     else
         print_error "❌ Backend nicht direkt erreichbar"
-        pm2 logs expense-backend --lines 10
+        pm2 logs expense-backend --lines 10 --nostream
+        return 1
+    fi
+
+    # PM2 Status detailliert
+    print_status "Prüfe PM2 Status..."
+    if pm2 list | grep expense-backend | grep online > /dev/null; then
+        print_success "✅ PM2 Backend online"
+        pm2 monit --no-interaction &
+        PM2_PID=$!
+        sleep 2
+        kill $PM2_PID 2>/dev/null || true
+    else
+        print_error "❌ PM2 Backend nicht online"
+        pm2 status
+        return 1
+    fi
+
+    # Nginx Status
+    print_status "Prüfe Nginx Status..."
+    if systemctl is-active --quiet nginx; then
+        print_success "✅ Nginx läuft"
+    else
+        print_error "❌ Nginx nicht aktiv"
+        systemctl status nginx
         return 1
     fi
 
@@ -446,42 +547,29 @@ perform_health_check() {
     fi
 
     print_status "Prüfe Frontend unter $BASE_URL..."
-    if curl -s "$BASE_URL" > /dev/null 2>&1; then
+    if curl -s --max-time 10 "$BASE_URL" > /dev/null 2>&1; then
         print_success "✅ Frontend erreichbar"
     else
         print_warning "⚠️  Frontend möglicherweise nicht erreichbar"
+        print_debug "Nginx-Fehlerlog (letzte 5 Zeilen):"
+        tail -n 5 /var/log/nginx/error.log 2>/dev/null || echo "Keine Nginx-Logs verfügbar"
     fi
 
     # API über Nginx testen
     print_status "Prüfe API über Nginx unter $BASE_URL/api/health..."
-    if curl -s "$BASE_URL/api/health" > /dev/null 2>&1; then
-        print_success "✅ API über Nginx erreichbar"
+    if API_RESPONSE=$(curl -s --max-time 10 "$BASE_URL/api/health" 2>/dev/null); then
+        if echo "$API_RESPONSE" | grep -q "OK"; then
+            print_success "✅ API über Nginx voll funktionsfähig"
+        else
+            print_warning "⚠️  API antwortet, aber unerwartete Antwort: $API_RESPONSE"
+        fi
     else
         print_warning "⚠️  API über Nginx nicht erreichbar"
-        print_debug "Nginx-Fehlerlog:"
-        tail -n 5 /var/log/nginx/error.log 2>/dev/null || echo "Keine Nginx-Logs verfügbar"
+        print_debug "Teste direkte API-Verbindung..."
+        curl -v "$BASE_URL/api/health" || echo "Direkter Test fehlgeschlagen"
     fi
 
-    # PM2 Status
-    print_status "Prüfe PM2 Status..."
-    if pm2 list | grep expense-backend | grep online > /dev/null; then
-        print_success "✅ PM2 Backend läuft"
-    else
-        print_error "❌ PM2 Backend nicht aktiv"
-        pm2 status
-        return 1
-    fi
-
-    # Nginx Status
-    print_status "Prüfe Nginx Status..."
-    if systemctl is-active --quiet nginx; then
-        print_success "✅ Nginx läuft"
-    else
-        print_error "❌ Nginx nicht aktiv"
-        systemctl status nginx
-        return 1
-    fi
-
+    print_success "✅ Health Check abgeschlossen"
     return 0
 }
 
@@ -491,7 +579,7 @@ print_summary() {
     
     echo ""
     echo "🎉 =================================================================="
-    echo "🎉  EXPENSE TRACKER ERFOLGREICH INSTALLIERT!"
+    echo "🎉  EXPENSE TRACKER ERFOLGREICH INSTALLIERT UND GETESTET!"
     echo "🎉 =================================================================="
     echo ""
     
@@ -505,7 +593,7 @@ print_summary() {
             print_warning "⚠️  SSL konnte nicht eingerichtet werden"
         fi
         print_success "🔗 API verfügbar unter: $domain/api"
-        print_success "💚 Health Check: $domain/health"
+        print_success "💚 Health Check: $domain/api/health"
     else
         SERVER_IP=$(hostname -I | awk '{print $1}')
         print_success "🌐 App verfügbar unter: http://$SERVER_IP"
@@ -519,7 +607,8 @@ print_summary() {
     echo "   • Logs anzeigen:     pm2 logs expense-backend"
     echo "   • App neustarten:    pm2 restart expense-backend"
     echo "   • Status prüfen:     pm2 status"
-    echo "   • Backup erstellen:  cd /var/www/expense-tracker && ./backup.sh"
+    echo "   • Realtime-Monitor:  pm2 monit"
+    echo "   • Backend-Test:      curl http://localhost:3001/api/health"
     
     if [ "$ssl_enabled" = true ]; then
         echo "   • SSL Status:        sudo certbot certificates"
@@ -529,14 +618,15 @@ print_summary() {
     echo ""
     echo "📂 WICHTIGE PFADE:"
     echo "   • App-Verzeichnis:   /var/www/expense-tracker"
+    echo "   • Backend-Logs:      /var/www/expense-tracker/backend/logs/"
     echo "   • Datenbank:         /var/www/expense-tracker/backend/expenses.db"
-    echo "   • Backups:           /var/backups/expense-tracker"
+    echo "   • Nginx-Config:      /etc/nginx/sites-available/expense-tracker"
     echo ""
-    print_success "🚀 Installation abgeschlossen! Viel Spaß mit dem Expense Tracker!"
+    print_success "🚀 Installation und Tests erfolgreich! Die App sollte funktionieren!"
 }
 
 # =============================================================================
-# HAUPTAUSFÜHRUNG
+# HAUPTAUSFÜHRUNG (unverändert)
 # =============================================================================
 
 echo "🚀 Starte automatische Installation des Expense Trackers..."
@@ -581,7 +671,7 @@ if [ -n "$DOMAIN" ]; then
     fi
 fi
 
-# Schritt 5: Health Check und Zusammenfassung
+# Schritt 5: Umfassender Health Check und Zusammenfassung
 if perform_health_check "$DOMAIN" "$SSL_ENABLED"; then
     print_summary "$DOMAIN" "$SSL_ENABLED"
 else

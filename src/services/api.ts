@@ -19,14 +19,9 @@ class ApiService {
     options: RequestInit = {}
   ): Promise<T> {
     // Construct URL properly for both development and production
-    let url: string;
-    if (import.meta.env.DEV) {
-      // Development: use full localhost URL
-      url = `${API_BASE_URL}${endpoint}`;
-    } else {
-      // Production: use relative URLs (served through Nginx proxy)
-      url = endpoint;
-    }
+    const url = import.meta.env.DEV 
+      ? `${API_BASE_URL}${endpoint}`
+      : endpoint; // Use relative URLs in production (served through Nginx proxy)
     
     const config: RequestInit = {
       headers: {
@@ -36,17 +31,29 @@ class ApiService {
       ...options,
     };
 
-    console.log(`API Request: ${config.method || 'GET'} ${url}`);
+    console.log(`🔗 API Request: ${config.method || 'GET'} ${url}`);
+    console.log(`🌍 Environment: ${import.meta.env.DEV ? 'Development' : 'Production'}`);
+    console.log(`🎯 Base URL: ${API_BASE_URL}`);
     
-    const response = await fetch(url, config);
-    
-    if (!response.ok) {
-      const errorText = await response.text();
-      console.error(`API Error ${response.status}: ${errorText}`);
-      throw new Error(`API Error ${response.status}: ${errorText}`);
+    try {
+      const response = await fetch(url, config);
+      
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error(`❌ API Error ${response.status}: ${errorText}`);
+        throw new Error(`API Error ${response.status}: ${errorText}`);
+      }
+      
+      const data = await response.json();
+      console.log(`✅ API Success: ${config.method || 'GET'} ${url}`);
+      return data;
+    } catch (error) {
+      console.error(`💥 Fetch Error for ${url}:`, error);
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error(`Verbindung zum Server fehlgeschlagen. Stelle sicher, dass das Backend läuft auf ${API_BASE_URL}`);
+      }
+      throw error;
     }
-    
-    return response.json();
   }
 
   async getExpenses(): Promise<ApiExpense[]> {

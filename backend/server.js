@@ -7,32 +7,59 @@ const path = require('path');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// Middleware
-app.use(cors({
-  origin: true,
+// Enhanced startup logging
+console.log('🚀 ================================');
+console.log('🚀  EXPENSE TRACKER BACKEND START');
+console.log('🚀 ================================');
+console.log(`📅 Zeitstempel: ${new Date().toISOString()}`);
+console.log(`🔧 Node.js Version: ${process.version}`);
+console.log(`📂 Working Directory: ${process.cwd()}`);
+console.log(`🌍 Environment: ${process.env.NODE_ENV || 'development'}`);
+console.log(`🔌 Port: ${PORT}`);
+
+// Enhanced CORS configuration
+const corsOptions = {
+  origin: function (origin, callback) {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    
+    // Allow localhost and common development origins
+    const allowedOrigins = [
+      'http://localhost:5173',
+      'http://localhost:3000',
+      'http://127.0.0.1:5173',
+      'http://127.0.0.1:3000'
+    ];
+    
+    if (allowedOrigins.indexOf(origin) !== -1 || origin.includes('localhost')) {
+      callback(null, true);
+    } else {
+      console.log(`🔒 CORS: Allowing origin: ${origin}`);
+      callback(null, true); // Be permissive for now
+    }
+  },
   credentials: true,
   methods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization']
-}));
+};
+
+app.use(cors(corsOptions));
 app.use(express.json());
 
-// Request logging middleware
+// Enhanced request logging middleware
 app.use((req, res, next) => {
-  console.log(`${new Date().toISOString()} - ${req.method} ${req.path}`);
+  const timestamp = new Date().toISOString();
+  console.log(`📝 ${timestamp} - ${req.method} ${req.path} - Origin: ${req.get('Origin') || 'none'}`);
   next();
 });
 
 // SQLite Datenbank initialisieren
 const dbPath = path.join(__dirname, 'expenses.db');
-console.log('=================================');
-console.log('Backend Server startet...');
-console.log('Datenbank-Pfad:', dbPath);
-console.log('Port:', PORT);
-console.log('=================================');
+console.log('💾 Datenbank-Pfad:', dbPath);
 
 const db = new sqlite3.Database(dbPath, (err) => {
   if (err) {
-    console.error('FEHLER beim Öffnen der Datenbank:', err);
+    console.error('❌ FEHLER beim Öffnen der Datenbank:', err);
     process.exit(1);
   } else {
     console.log('✅ SQLite-Datenbank erfolgreich verbunden');
@@ -51,10 +78,38 @@ db.serialize(() => {
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP
   )`, (err) => {
     if (err) {
-      console.error('FEHLER beim Erstellen der Tabelle:', err);
+      console.error('❌ FEHLER beim Erstellen der Tabelle:', err);
       process.exit(1);
     } else {
       console.log('✅ Expenses-Tabelle ist bereit');
+    }
+  });
+});
+
+// Enhanced Health check with more details
+app.get('/api/health', (req, res) => {
+  console.log('💚 Health check aufgerufen');
+  
+  // Test database connection
+  db.get('SELECT COUNT(*) as count FROM expenses', (err, row) => {
+    if (err) {
+      console.error('❌ Database health check failed:', err);
+      res.status(500).json({ 
+        status: 'ERROR', 
+        message: 'Datenbankfehler',
+        timestamp: new Date().toISOString(),
+        error: err.message
+      });
+    } else {
+      res.json({ 
+        status: 'OK', 
+        message: 'Server und Datenbank laufen',
+        timestamp: new Date().toISOString(),
+        port: PORT,
+        database: 'connected',
+        expenses_count: row.count,
+        uptime: process.uptime()
+      });
     }
   });
 });
@@ -124,18 +179,6 @@ app.delete('/api/expenses/:id', (req, res) => {
   });
 });
 
-// Health check
-app.get('/api/health', (req, res) => {
-  console.log('💚 Health check aufgerufen');
-  res.json({ 
-    status: 'OK', 
-    message: 'Server läuft',
-    timestamp: new Date().toISOString(),
-    port: PORT,
-    database: 'connected'
-  });
-});
-
 // Catch-all für unbekannte API-Routes
 app.use('/api/*', (req, res) => {
   console.log('❓ Unbekannte API-Route aufgerufen:', req.method, req.path);
@@ -148,13 +191,28 @@ app.use((err, req, res, next) => {
   res.status(500).json({ error: 'Interner Server-Fehler' });
 });
 
-// Server starten
+// Server starten mit verbesserter Fehlerbehandlung
 const server = app.listen(PORT, '0.0.0.0', () => {
   console.log('🚀 ================================');
-  console.log(`🚀  SERVER LÄUFT AUF PORT ${PORT}`);
-  console.log(`🚀  API verfügbar unter http://localhost:${PORT}/api`);
+  console.log(`🚀  SERVER ERFOLGREICH GESTARTET`);
+  console.log(`🚀  Port: ${PORT}`);
+  console.log(`🚀  Host: 0.0.0.0 (alle Interfaces)`);
+  console.log(`🚀  API verfügbar unter: http://localhost:${PORT}/api`);
   console.log(`🚀  Health check: http://localhost:${PORT}/api/health`);
+  console.log(`🚀  Gestartet um: ${new Date().toISOString()}`);
   console.log('🚀 ================================');
+});
+
+// Verbesserte Fehlerbehandlung beim Serverstart
+server.on('error', (err) => {
+  if (err.code === 'EADDRINUSE') {
+    console.error(`❌ Port ${PORT} ist bereits belegt!`);
+    console.error('💡 Versuche einen anderen Port oder stoppe den laufenden Prozess');
+    process.exit(1);
+  } else {
+    console.error('❌ Server-Fehler:', err);
+    process.exit(1);
+  }
 });
 
 // Graceful shutdown
