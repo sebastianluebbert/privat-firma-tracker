@@ -13,7 +13,7 @@ interface ExpenseFormProps {
 
 export const ExpenseForm = ({ onSubmit, onCancel }: ExpenseFormProps) => {
   const [formData, setFormData] = useState({
-    partner: "" as "Partner A" | "Partner B" | "",
+    partner: "" as "Sebi" | "Alex" | "",
     description: "",
     amount: "",
     date: new Date().toISOString().split('T')[0],
@@ -38,7 +38,7 @@ export const ExpenseForm = ({ onSubmit, onCancel }: ExpenseFormProps) => {
     }
 
     onSubmit({
-      partner: formData.partner as "Partner A" | "Partner B",
+      partner: formData.partner as "Sebi" | "Alex",
       description: formData.description,
       amount: parseFloat(formData.amount),
       date: formData.date,
@@ -47,7 +47,7 @@ export const ExpenseForm = ({ onSubmit, onCancel }: ExpenseFormProps) => {
 
     // Reset form
     setFormData({
-      partner: "" as "Partner A" | "Partner B" | "",
+      partner: "" as "Sebi" | "Alex" | "",
       description: "",
       amount: "",
       date: new Date().toISOString().split('T')[0],
@@ -60,13 +60,13 @@ export const ExpenseForm = ({ onSubmit, onCancel }: ExpenseFormProps) => {
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <div>
           <Label htmlFor="partner">Partner</Label>
-          <Select value={formData.partner} onValueChange={(value) => setFormData({...formData, partner: value as "Partner A" | "Partner B"})}>
+          <Select value={formData.partner} onValueChange={(value) => setFormData({...formData, partner: value as "Sebi" | "Alex"})}>
             <SelectTrigger>
               <SelectValue placeholder="Partner auswählen" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="Partner A">Partner A</SelectItem>
-              <SelectItem value="Partner B">Partner B</SelectItem>
+              <SelectItem value="Sebi">Sebi</SelectItem>
+              <SelectItem value="Alex">Alex</SelectItem>
             </SelectContent>
           </Select>
         </div>

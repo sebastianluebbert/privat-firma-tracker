@@ -4,22 +4,28 @@ import type { Expense } from "@/pages/Index";
 
 interface BalanceOverviewProps {
   expenses: Expense[];
+  onPartnerClick: (partner: "Sebi" | "Alex") => void;
+  selectedPartner?: "Sebi" | "Alex" | null;
 }
 
-export const BalanceOverview = ({ expenses }: BalanceOverviewProps) => {
-  const partnerATotal = expenses
-    .filter(expense => expense.partner === "Partner A")
+export const BalanceOverview = ({ expenses, onPartnerClick, selectedPartner }: BalanceOverviewProps) => {
+  const sebiTotal = expenses
+    .filter(expense => expense.partner === "Sebi")
     .reduce((sum, expense) => sum + expense.amount, 0);
 
-  const partnerBTotal = expenses
-    .filter(expense => expense.partner === "Partner B")
+  const alexTotal = expenses
+    .filter(expense => expense.partner === "Alex")
     .reduce((sum, expense) => sum + expense.amount, 0);
 
-  const totalExpenses = partnerATotal + partnerBTotal;
+  const sebiCount = expenses.filter(expense => expense.partner === "Sebi").length;
+  const alexCount = expenses.filter(expense => expense.partner === "Alex").length;
+
+  const totalExpenses = sebiTotal + alexTotal;
   const averagePerPartner = totalExpenses / 2;
   
-  const partnerABalance = partnerATotal - averagePerPartner;
-  const partnerBBalance = partnerBTotal - averagePerPartner;
+  const sebiBalance = sebiTotal - averagePerPartner;
+  const alexBalance = alexTotal - averagePerPartner;
+  const difference = Math.abs(sebiTotal - alexTotal);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('de-DE', {
@@ -29,31 +35,41 @@ export const BalanceOverview = ({ expenses }: BalanceOverviewProps) => {
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
-      <Card className="shadow-md border-l-4 border-l-blue-500">
+    <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+      <Card 
+        className={`shadow-md border-l-4 border-l-blue-500 cursor-pointer transition-all hover:shadow-lg hover:scale-105 ${
+          selectedPartner === "Sebi" ? "ring-2 ring-blue-300 bg-blue-50" : ""
+        }`}
+        onClick={() => onPartnerClick("Sebi")}
+      >
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium text-gray-600">Partner A</CardTitle>
+          <CardTitle className="text-sm font-medium text-gray-600">Sebi</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold text-gray-900">
-            {formatCurrency(partnerATotal)}
+            {formatCurrency(sebiTotal)}
           </div>
           <div className="text-sm text-gray-500 mt-1">
-            Gesamtausgaben
+            {sebiCount} Ausgaben
           </div>
         </CardContent>
       </Card>
 
-      <Card className="shadow-md border-l-4 border-l-green-500">
+      <Card 
+        className={`shadow-md border-l-4 border-l-green-500 cursor-pointer transition-all hover:shadow-lg hover:scale-105 ${
+          selectedPartner === "Alex" ? "ring-2 ring-green-300 bg-green-50" : ""
+        }`}
+        onClick={() => onPartnerClick("Alex")}
+      >
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium text-gray-600">Partner B</CardTitle>
+          <CardTitle className="text-sm font-medium text-gray-600">Alex</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="text-2xl font-bold text-gray-900">
-            {formatCurrency(partnerBTotal)}
+            {formatCurrency(alexTotal)}
           </div>
           <div className="text-sm text-gray-500 mt-1">
-            Gesamtausgaben
+            {alexCount} Ausgaben
           </div>
         </CardContent>
       </Card>
@@ -72,12 +88,26 @@ export const BalanceOverview = ({ expenses }: BalanceOverviewProps) => {
         </CardContent>
       </Card>
 
-      <Card className={`shadow-md border-l-4 ${Math.abs(partnerABalance) < 0.01 ? 'border-l-gray-400' : partnerABalance > 0 ? 'border-l-red-500' : 'border-l-orange-500'}`}>
+      <Card className="shadow-md border-l-4 border-l-yellow-500">
+        <CardHeader className="pb-3">
+          <CardTitle className="text-sm font-medium text-gray-600">Differenz</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <div className="text-2xl font-bold text-yellow-600">
+            {formatCurrency(difference)}
+          </div>
+          <div className="text-sm text-gray-500 mt-1">
+            {sebiTotal > alexTotal ? "Sebi liegt vorn" : alexTotal > sebiTotal ? "Alex liegt vorn" : "Ausgeglichen"}
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card className={`shadow-md border-l-4 ${Math.abs(sebiBalance) < 0.01 ? 'border-l-gray-400' : sebiBalance > 0 ? 'border-l-red-500' : 'border-l-orange-500'}`}>
         <CardHeader className="pb-3">
           <CardTitle className="text-sm font-medium text-gray-600">Saldo</CardTitle>
         </CardHeader>
         <CardContent>
-          {Math.abs(partnerABalance) < 0.01 ? (
+          {Math.abs(sebiBalance) < 0.01 ? (
             <div>
               <div className="text-2xl font-bold text-green-600">
                 Ausgeglichen
@@ -86,22 +116,22 @@ export const BalanceOverview = ({ expenses }: BalanceOverviewProps) => {
                 Keine Schulden
               </div>
             </div>
-          ) : partnerABalance > 0 ? (
+          ) : sebiBalance > 0 ? (
             <div>
               <div className="text-xl font-bold text-red-600">
-                B schuldet A
+                Alex schuldet Sebi
               </div>
               <div className="text-lg font-semibold text-gray-900">
-                {formatCurrency(Math.abs(partnerABalance))}
+                {formatCurrency(Math.abs(sebiBalance))}
               </div>
             </div>
           ) : (
             <div>
               <div className="text-xl font-bold text-orange-600">
-                A schuldet B
+                Sebi schuldet Alex
               </div>
               <div className="text-lg font-semibold text-gray-900">
-                {formatCurrency(Math.abs(partnerBBalance))}
+                {formatCurrency(Math.abs(alexBalance))}
               </div>
             </div>
           )}

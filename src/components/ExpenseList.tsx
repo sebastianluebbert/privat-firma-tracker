@@ -52,8 +52,8 @@ export const ExpenseList = ({ expenses, onDeleteExpense }: ExpenseListProps) => 
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Alle Partner</SelectItem>
-                <SelectItem value="Partner A">Partner A</SelectItem>
-                <SelectItem value="Partner B">Partner B</SelectItem>
+                <SelectItem value="Sebi">Sebi</SelectItem>
+                <SelectItem value="Alex">Alex</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -92,7 +92,7 @@ export const ExpenseList = ({ expenses, onDeleteExpense }: ExpenseListProps) => 
                 <div className="flex-1">
                   <div className="flex items-center gap-3 mb-2">
                     <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                      expense.partner === "Partner A" 
+                      expense.partner === "Sebi" 
                         ? "bg-blue-100 text-blue-800" 
                         : "bg-green-100 text-green-800"
                     }`}>

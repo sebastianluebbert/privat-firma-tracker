@@ -1,7 +1,7 @@
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Plus } from "lucide-react";
+import { Plus, X } from "lucide-react";
 import { useState } from "react";
 import { ExpenseForm } from "./ExpenseForm";
 import { ExpenseList } from "./ExpenseList";
@@ -16,6 +16,11 @@ interface ExpenseTrackerProps {
 
 export const ExpenseTracker = ({ expenses, onAddExpense, onDeleteExpense }: ExpenseTrackerProps) => {
   const [showForm, setShowForm] = useState(false);
+  const [selectedPartner, setSelectedPartner] = useState<"Sebi" | "Alex" | null>(null);
+
+  const filteredExpenses = selectedPartner 
+    ? expenses.filter(expense => expense.partner === selectedPartner)
+    : expenses;
 
   return (
     <div className="container mx-auto p-6 max-w-6xl">
@@ -30,7 +35,29 @@ export const ExpenseTracker = ({ expenses, onAddExpense, onDeleteExpense }: Expe
       </div>
 
       {/* Balance Overview */}
-      <BalanceOverview expenses={expenses} />
+      <BalanceOverview 
+        expenses={expenses} 
+        onPartnerClick={setSelectedPartner}
+        selectedPartner={selectedPartner}
+      />
+
+      {/* Filter indicator */}
+      {selectedPartner && (
+        <div className="mb-6 flex items-center gap-3">
+          <div className="bg-blue-100 text-blue-800 px-3 py-1 rounded-full text-sm font-medium">
+            Nur {selectedPartner}'s Ausgaben angezeigt
+          </div>
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setSelectedPartner(null)}
+            className="text-gray-600 hover:text-gray-800"
+          >
+            <X className="h-4 w-4 mr-1" />
+            Alle anzeigen
+          </Button>
+        </div>
+      )}
 
       {/* Add Expense Button */}
       <div className="mb-6">
@@ -63,7 +90,7 @@ export const ExpenseTracker = ({ expenses, onAddExpense, onDeleteExpense }: Expe
       )}
 
       {/* Expenses List */}
-      <ExpenseList expenses={expenses} onDeleteExpense={onDeleteExpense} />
+      <ExpenseList expenses={filteredExpenses} onDeleteExpense={onDeleteExpense} />
     </div>
   );
 };

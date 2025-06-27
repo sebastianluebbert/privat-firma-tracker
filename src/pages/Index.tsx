@@ -4,7 +4,7 @@ import { ExpenseTracker } from "@/components/ExpenseTracker";
 
 export interface Expense {
   id: string;
-  partner: "Partner A" | "Partner B";
+  partner: "Sebi" | "Alex";
   description: string;
   amount: number;
   date: string;
