@@ -18,8 +18,15 @@ class ApiService {
     endpoint: string, 
     options: RequestInit = {}
   ): Promise<T> {
-    // Use relative URLs for production (served by same domain through Nginx)
-    const url = API_BASE_URL ? `${API_BASE_URL}/api${endpoint}` : `/api${endpoint}`;
+    // Construct URL properly for both development and production
+    let url: string;
+    if (import.meta.env.DEV) {
+      // Development: use full localhost URL
+      url = `${API_BASE_URL}${endpoint}`;
+    } else {
+      // Production: use relative URLs (served through Nginx proxy)
+      url = endpoint;
+    }
     
     const config: RequestInit = {
       headers: {
@@ -35,6 +42,7 @@ class ApiService {
     
     if (!response.ok) {
       const errorText = await response.text();
+      console.error(`API Error ${response.status}: ${errorText}`);
       throw new Error(`API Error ${response.status}: ${errorText}`);
     }
     
@@ -42,24 +50,24 @@ class ApiService {
   }
 
   async getExpenses(): Promise<ApiExpense[]> {
-    return this.request<ApiExpense[]>('/expenses');
+    return this.request<ApiExpense[]>('/api/expenses');
   }
 
   async addExpense(expense: Omit<ApiExpense, 'id'>): Promise<ApiExpense> {
-    return this.request<ApiExpense>('/expenses', {
+    return this.request<ApiExpense>('/api/expenses', {
       method: 'POST',
       body: JSON.stringify(expense),
     });
   }
 
   async deleteExpense(id: string): Promise<void> {
-    await this.request(`/expenses/${id}`, {
+    await this.request(`/api/expenses/${id}`, {
       method: 'DELETE',
     });
   }
 
   async checkHealth(): Promise<{ status: string; message: string }> {
-    return this.request<{ status: string; message: string }>('/health');
+    return this.request<{ status: string; message: string }>('/api/health');
   }
 }
 

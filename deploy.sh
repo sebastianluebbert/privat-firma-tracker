@@ -1,4 +1,3 @@
-
 #!/bin/bash
 
 # Expense Tracker - Hauptinstallations-Script
@@ -164,30 +163,44 @@ setup_app() {
 
     # Warte bis Backend vollständig gestartet ist
     print_status "Warte auf Backend-Start..."
-    sleep 5
+    sleep 10
     
-    # Backend Health Check mit mehreren Versuchen
+    # Backend Health Check mit detailliertem Feedback
     print_status "Prüfe Backend-Verfügbarkeit..."
-    for i in {1..15}; do
-        if curl -s http://localhost:3001/api/health > /dev/null 2>&1; then
-            print_success "Backend läuft und ist erreichbar"
+    BACKEND_READY=false
+    for i in {1..30}; do
+        print_debug "Versuch $i/30: Teste http://localhost:3001/api/health"
+        
+        if curl -s --connect-timeout 5 --max-time 10 http://localhost:3001/api/health > /dev/null 2>&1; then
+            HEALTH_RESPONSE=$(curl -s http://localhost:3001/api/health)
+            print_success "✅ Backend ist erreichbar: $HEALTH_RESPONSE"
+            BACKEND_READY=true
             break
         fi
-        if [ $i -eq 15 ]; then
-            print_error "Backend nicht erreichbar nach 15 Versuchen"
+        
+        if [ $i -eq 30 ]; then
+            print_error "❌ Backend nicht erreichbar nach 30 Versuchen (5 Minuten)"
+            print_error "PM2 Logs:"
+            pm2 logs expense-backend --lines 20
+            exit 1
         fi
-        print_debug "Versuch $i/15: Warte auf Backend..."
-        sleep 2
+        
+        print_debug "Backend noch nicht bereit, warte 10 Sekunden..."
+        sleep 10
     done
 
-    # Frontend Setup
-    print_status "Baue Frontend..."
+    if [ "$BACKEND_READY" = false ]; then
+        print_error "Backend-Start fehlgeschlagen"
+    fi
+
+    # Frontend Setup - VEREINFACHTE .env Konfiguration
+    print_status "Konfiguriere Frontend für Production..."
     cd $APP_DIR
     
-    # .env für Frontend erstellen - IMMER relative URLs verwenden
+    # .env für Frontend erstellen - Leere VITE_API_URL für relative URLs
     cat > .env << EOF
-# Production: Use relative URLs through Nginx proxy
-# Backend wird über Nginx-Proxy unter /api/ erreichbar sein
+# Production Configuration
+# Leere VITE_API_URL bedeutet: Verwende relative URLs über Nginx Proxy
 VITE_API_URL=
 EOF
     
@@ -198,6 +211,7 @@ EOF
         echo "# Server IP: $SERVER_IP" >> .env
     fi
     
+    print_status "Baue Frontend..."
     npm install
     npm run build
     
@@ -240,7 +254,7 @@ server {
         }
     }
     
-    # Backend API - Wichtig: Kein trailing slash nach localhost:3001
+    # Backend API Proxy - Konsistente Weiterleitung
     location /api/ {
         proxy_pass http://localhost:3001/api/;
         proxy_set_header Host \$host;
@@ -248,28 +262,19 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         
-        # CORS Headers
-        add_header Access-Control-Allow-Origin "*" always;
-        add_header Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS" always;
-        add_header Access-Control-Allow-Headers "Content-Type, Authorization" always;
+        # Timeout settings
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
         
-        # Handle preflight requests
-        if (\$request_method = 'OPTIONS') {
-            add_header Access-Control-Allow-Origin "*";
-            add_header Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS";
-            add_header Access-Control-Allow-Headers "Content-Type, Authorization";
-            add_header Access-Control-Max-Age 1728000;
-            add_header Content-Type 'text/plain; charset=utf-8';
-            add_header Content-Length 0;
-            return 204;
-        }
-    }
-    
-    # Health check - Direkter Proxy ohne Pfad-Änderung
-    location /health {
-        proxy_pass http://localhost:3001/api/health;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
+        # Buffer settings
+        proxy_buffering on;
+        proxy_buffer_size 4k;
+        proxy_buffers 8 4k;
+        
+        # Error handling
+        proxy_intercept_errors on;
+        error_page 502 503 504 /50x.html;
     }
 }
 EOF
@@ -292,7 +297,7 @@ server {
         }
     }
     
-    # Backend API - Wichtig: Korrekte Proxy-Weiterleitung
+    # Backend API Proxy - Konsistente Weiterleitung
     location /api/ {
         proxy_pass http://localhost:3001/api/;
         proxy_set_header Host \$host;
@@ -300,32 +305,37 @@ server {
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
         
-        # CORS Headers
-        add_header Access-Control-Allow-Origin "*" always;
-        add_header Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS" always;
-        add_header Access-Control-Allow-Headers "Content-Type, Authorization" always;
+        # Timeout settings
+        proxy_connect_timeout 60s;
+        proxy_send_timeout 60s;
+        proxy_read_timeout 60s;
         
-        # Handle preflight requests
-        if (\$request_method = 'OPTIONS') {
-            add_header Access-Control-Allow-Origin "*";
-            add_header Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS";
-            add_header Access-Control-Allow-Headers "Content-Type, Authorization";
-            add_header Access-Control-Max-Age 1728000;
-            add_header Content-Type 'text/plain; charset=utf-8';
-            add_header Content-Length 0;
-            return 204;
-        }
-    }
-    
-    # Health check
-    location /health {
-        proxy_pass http://localhost:3001/api/health;
-        proxy_set_header Host \$host;
-        proxy_set_header X-Real-IP \$remote_addr;
+        # Buffer settings
+        proxy_buffering on;
+        proxy_buffer_size 4k;
+        proxy_buffers 8 4k;
+        
+        # Error handling
+        proxy_intercept_errors on;
+        error_page 502 503 504 /50x.html;
     }
 }
 EOF
     fi
+
+    # 50x Error Page erstellen
+    cat > $FRONTEND_DIR/50x.html << EOF
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Service Unavailable</title>
+</head>
+<body>
+    <h1>Service Temporarily Unavailable</h1>
+    <p>The backend service is currently unavailable. Please try again in a few moments.</p>
+</body>
+</html>
+EOF
 
     # Site aktivieren
     ln -sf $NGINX_AVAILABLE $NGINX_ENABLED
@@ -336,6 +346,8 @@ EOF
     # Nginx testen und neustarten
     if ! nginx -t; then
         print_error "Nginx-Konfiguration ungültig"
+        cat $NGINX_AVAILABLE
+        exit 1
     fi
     
     systemctl restart nginx
