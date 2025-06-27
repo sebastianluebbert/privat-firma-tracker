@@ -21,10 +21,6 @@ export const BalanceOverview = ({ expenses, onPartnerClick, selectedPartner }: B
   const alexCount = expenses.filter(expense => expense.partner === "Alex").length;
 
   const totalExpenses = sebiTotal + alexTotal;
-  const averagePerPartner = totalExpenses / 2;
-  
-  const sebiBalance = sebiTotal - averagePerPartner;
-  const alexBalance = alexTotal - averagePerPartner;
   const difference = Math.abs(sebiTotal - alexTotal);
 
   const formatCurrency = (amount: number) => {
@@ -102,36 +98,36 @@ export const BalanceOverview = ({ expenses, onPartnerClick, selectedPartner }: B
         </CardContent>
       </Card>
 
-      <Card className={`shadow-md border-l-4 ${Math.abs(sebiBalance) < 0.01 ? 'border-l-gray-400' : sebiBalance > 0 ? 'border-l-red-500' : 'border-l-orange-500'}`}>
+      <Card className={`shadow-md border-l-4 ${Math.abs(sebiTotal - alexTotal) < 0.01 ? 'border-l-gray-400' : sebiTotal > alexTotal ? 'border-l-blue-500' : 'border-l-green-500'}`}>
         <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium text-gray-600">Saldo</CardTitle>
+          <CardTitle className="text-sm font-medium text-gray-600">Vermögensstand</CardTitle>
         </CardHeader>
         <CardContent>
-          {Math.abs(sebiBalance) < 0.01 ? (
+          {Math.abs(sebiTotal - alexTotal) < 0.01 ? (
             <div>
-              <div className="text-2xl font-bold text-green-600">
+              <div className="text-xl font-bold text-green-600">
                 Ausgeglichen
               </div>
               <div className="text-sm text-gray-500 mt-1">
-                Keine Schulden
+                Beide gleichauf
               </div>
             </div>
-          ) : sebiBalance > 0 ? (
+          ) : sebiTotal > alexTotal ? (
             <div>
-              <div className="text-xl font-bold text-red-600">
-                Alex schuldet Sebi
+              <div className="text-lg font-bold text-blue-600">
+                Sebi liegt {formatCurrency(difference)} vorn
               </div>
-              <div className="text-lg font-semibold text-gray-900">
-                {formatCurrency(Math.abs(sebiBalance))}
+              <div className="text-sm text-gray-500 mt-1">
+                Alex kann noch {formatCurrency(difference)} ausgeben
               </div>
             </div>
           ) : (
             <div>
-              <div className="text-xl font-bold text-orange-600">
-                Sebi schuldet Alex
+              <div className="text-lg font-bold text-green-600">
+                Alex liegt {formatCurrency(difference)} vorn
               </div>
-              <div className="text-lg font-semibold text-gray-900">
-                {formatCurrency(Math.abs(alexBalance))}
+              <div className="text-sm text-gray-500 mt-1">
+                Sebi kann noch {formatCurrency(difference)} ausgeben
               </div>
             </div>
           )}
