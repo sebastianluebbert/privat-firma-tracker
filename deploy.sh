@@ -1,8 +1,7 @@
-
 #!/bin/bash
 
 # Expense Tracker - Automatische Installation für Debian 12
-# Verwendung: curl -fsSL https://raw.githubusercontent.com/[DEIN-USERNAME]/[DEIN-REPO]/main/deploy.sh | bash
+# Verwendung: curl -fsSL https://raw.githubusercontent.com/sebastianluebbert/privat-firma-tracker/main/deploy.sh | bash
 
 set -e
 
@@ -34,7 +33,7 @@ print_error() {
 }
 
 # Konfiguration
-REPO_URL="https://github.com/[DEIN-USERNAME]/[DEIN-REPO].git"
+REPO_URL="https://github.com/sebastianluebbert/privat-firma-tracker.git"
 APP_DIR="/var/www/expense-tracker"
 FRONTEND_DIR="$APP_DIR/frontend"
 BACKEND_DIR="$APP_DIR/backend"

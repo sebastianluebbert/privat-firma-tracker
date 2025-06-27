@@ -19,7 +19,7 @@ Ein privater Ausgaben-Tracker für Sebi & Alex mit automatischem Deployment.
 
 ```bash
 # Als root auf deinem Server:
-curl -fsSL https://raw.githubusercontent.com/[DEIN-USERNAME]/[DEIN-REPO]/main/deploy.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sebastianluebbert/privat-firma-tracker/main/deploy.sh | bash
 ```
 
 Das war's! Die App ist danach unter `http://DEINE-SERVER-IP` erreichbar.
@@ -28,7 +28,7 @@ Das war's! Die App ist danach unter `http://DEINE-SERVER-IP` erreichbar.
 
 ```bash
 # Repository klonen
-git clone https://github.com/[DEIN-USERNAME]/[DEIN-REPO].git
+git clone https://github.com/sebastianluebbert/privat-firma-tracker.git
 cd expense-tracker
 
 # Backend starten

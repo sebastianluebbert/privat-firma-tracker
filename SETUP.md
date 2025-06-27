@@ -6,7 +6,7 @@
 ### Automatische Installation auf Debian 12 Server:
 ```bash
 # Als root ausführen:
-curl -fsSL https://raw.githubusercontent.com/[DEIN-USERNAME]/[DEIN-REPO]/main/deploy.sh | bash
+curl -fsSL https://raw.githubusercontent.com/sebastianluebbert/privat-firma-tracker/main/deploy.sh | bash
 ```
 
 **Das Script installiert automatisch:**
@@ -22,8 +22,6 @@ curl -fsSL https://raw.githubusercontent.com/[DEIN-USERNAME]/[DEIN-REPO]/main/de
 - Frontend: `http://DEINE-SERVER-IP`
 - Backend API: `http://DEINE-SERVER-IP/api`
 - Gesunde App: `http://DEINE-SERVER-IP/health`
-
----
 
 ## 🔄 Updates & Wartung
 
@@ -54,8 +52,6 @@ pm2 restart expense-backend
 systemctl restart nginx
 ```
 
----
-
 ## 📁 Wichtige Pfade
 
 - **App-Verzeichnis:** `/var/www/expense-tracker`
@@ -64,8 +60,6 @@ systemctl restart nginx
 - **Datenbank:** `/var/www/expense-tracker/backend/expenses.db`
 - **Backups:** `/var/backups/expense-tracker`
 - **Logs:** `pm2 logs expense-backend`
-
----
 
 ## 🛠️ Manuelle Installation (Alternative)
 
@@ -147,8 +141,6 @@ cd /var/www/expense-frontend
 python3 -m http.server 8080
 ```
 
----
-
 ## 🔒 Sicherheit & Backups
 
 ### Automatische Backups einrichten:
@@ -170,8 +162,6 @@ sudo ufw status
 sudo apt install certbot python3-certbot-nginx
 sudo certbot --nginx -d deine-domain.com
 ```
-
----
 
 ## 🆘 Troubleshooting
 
