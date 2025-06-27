@@ -1,5 +1,8 @@
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
+// Use relative URLs in production, localhost in development
+const API_BASE_URL = import.meta.env.VITE_API_URL || (
+  import.meta.env.DEV ? 'http://localhost:3001' : ''
+);
 
 export interface ApiExpense {
   id: string;
@@ -15,7 +18,8 @@ class ApiService {
     endpoint: string, 
     options: RequestInit = {}
   ): Promise<T> {
-    const url = `${API_BASE_URL}/api${endpoint}`;
+    // Use relative URLs for production (served by same domain through Nginx)
+    const url = API_BASE_URL ? `${API_BASE_URL}/api${endpoint}` : `/api${endpoint}`;
     
     const config: RequestInit = {
       headers: {

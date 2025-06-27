@@ -1,4 +1,3 @@
-
 #!/bin/bash
 
 # Expense Tracker - Hauptinstallations-Script
@@ -152,31 +151,50 @@ setup_app() {
     # Backend-Dateien nach /var/www/expense-tracker/backend kopieren
     cp -r . $BACKEND_DIR/
     
-    # Frontend Setup
-    print_status "Baue Frontend..."
-    cd $APP_DIR
-    
-    # .env für Frontend erstellen
-    if [ -n "$domain" ]; then
-        echo "VITE_API_URL=https://$domain" > .env
-    else
-        SERVER_IP=$(hostname -I | awk '{print $1}')
-        echo "VITE_API_URL=http://$SERVER_IP" > .env
-    fi
-    
-    npm install
-    npm run build
-    
-    # Frontend-Build nach /var/www/expense-tracker/frontend kopieren
-    cp -r dist/* $FRONTEND_DIR/
-
-    # PM2 App starten
+    # PM2 App starten (vor Frontend-Build!)
     print_status "Starte Backend mit PM2..."
     cd $BACKEND_DIR
     pm2 delete expense-backend 2>/dev/null || true
     pm2 start server.js --name "expense-backend"
     pm2 save
     pm2 startup --silent || true
+
+    # Warte kurz bis Backend läuft
+    sleep 3
+    
+    # Backend Health Check
+    print_status "Prüfe Backend-Verfügbarkeit..."
+    for i in {1..10}; do
+        if curl -s http://localhost:3001/api/health > /dev/null; then
+            print_success "Backend läuft und ist erreichbar"
+            break
+        fi
+        if [ $i -eq 10 ]; then
+            print_error "Backend nicht erreichbar nach 10 Versuchen"
+        fi
+        sleep 2
+    done
+
+    # Frontend Setup
+    print_status "Baue Frontend..."
+    cd $APP_DIR
+    
+    # .env für Frontend erstellen (leer für relative URLs)
+    echo "# Production: Use relative URLs through Nginx proxy" > .env
+    if [ -n "$domain" ]; then
+        echo "# Domain: $domain" >> .env
+    else
+        SERVER_IP=$(hostname -I | awk '{print $1}')
+        echo "# Server IP: $SERVER_IP" >> .env
+    fi
+    # Lasse VITE_API_URL leer für relative URLs
+    echo "VITE_API_URL=" >> .env
+    
+    npm install
+    npm run build
+    
+    # Frontend-Build nach /var/www/expense-tracker/frontend kopieren
+    cp -r dist/* $FRONTEND_DIR/
 
     # Berechtigungen setzen
     chown -R expense:www-data $APP_DIR
@@ -216,11 +234,27 @@ server {
     
     # Backend API
     location /api/ {
-        proxy_pass http://localhost:3001;
+        proxy_pass http://localhost:3001/api/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        # CORS Headers
+        add_header Access-Control-Allow-Origin \$http_origin always;
+        add_header Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Content-Type, Authorization" always;
+        
+        # Handle preflight requests
+        if (\$request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin \$http_origin;
+            add_header Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS";
+            add_header Access-Control-Allow-Headers "Content-Type, Authorization";
+            add_header Access-Control-Max-Age 1728000;
+            add_header Content-Type 'text/plain; charset=utf-8';
+            add_header Content-Length 0;
+            return 204;
+        }
     }
     
     # Health check
@@ -251,11 +285,27 @@ server {
     
     # Backend API
     location /api/ {
-        proxy_pass http://localhost:3001;
+        proxy_pass http://localhost:3001/api/;
         proxy_set_header Host \$host;
         proxy_set_header X-Real-IP \$remote_addr;
         proxy_set_header X-Forwarded-For \$proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto \$scheme;
+        
+        # CORS Headers
+        add_header Access-Control-Allow-Origin \$http_origin always;
+        add_header Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS" always;
+        add_header Access-Control-Allow-Headers "Content-Type, Authorization" always;
+        
+        # Handle preflight requests
+        if (\$request_method = 'OPTIONS') {
+            add_header Access-Control-Allow-Origin \$http_origin;
+            add_header Access-Control-Allow-Methods "GET, POST, DELETE, OPTIONS";
+            add_header Access-Control-Allow-Headers "Content-Type, Authorization";
+            add_header Access-Control-Max-Age 1728000;
+            add_header Content-Type 'text/plain; charset=utf-8';
+            add_header Content-Length 0;
+            return 204;
+        }
     }
     
     # Health check
@@ -310,9 +360,11 @@ setup_ssl() {
     if certbot --nginx -d $domain --non-interactive --agree-tos --email admin@$domain --redirect; then
         print_success "✅ SSL-Zertifikat erfolgreich installiert!"
         
-        # Frontend .env für HTTPS aktualisieren
+        # Frontend .env für HTTPS aktualisieren (trotzdem relative URLs verwenden)
         cd $APP_DIR
-        echo "VITE_API_URL=https://$domain" > .env
+        echo "# Production: Use relative URLs through Nginx proxy" > .env
+        echo "# Domain: $domain (HTTPS enabled)" >> .env
+        echo "VITE_API_URL=" >> .env
         npm run build
         cp -r dist/* $FRONTEND_DIR/
         
