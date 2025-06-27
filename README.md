@@ -1,73 +1,102 @@
-# Welcome to your Lovable project
 
-## Project info
+# 💰 Expense Tracker
 
-**URL**: https://lovable.dev/projects/fe0ac5a1-9b2e-4552-a268-bd188db33333
+Ein privater Ausgaben-Tracker für Sebi & Alex mit automatischem Deployment.
 
-## How can I edit this code?
+## ✨ Features
 
-There are several ways of editing your application.
+- 💸 Ausgaben für zwei Partner tracken
+- 📊 Automatische Saldierung und Vermögensstand
+- 🎯 Kategorisierung von Ausgaben
+- 📱 Responsive Design
+- 🔄 Real-time Updates
+- 💾 SQLite Datenbank
+- 🚀 Ein-Klick Deployment
 
-**Use Lovable**
+## 🚀 Installation
 
-Simply visit the [Lovable Project](https://lovable.dev/projects/fe0ac5a1-9b2e-4552-a268-bd188db33333) and start prompting.
+### Automatisches Deployment (Debian 12)
 
-Changes made via Lovable will be committed automatically to this repo.
+```bash
+# Als root auf deinem Server:
+curl -fsSL https://raw.githubusercontent.com/[DEIN-USERNAME]/[DEIN-REPO]/main/deploy.sh | bash
+```
 
-**Use your preferred IDE**
+Das war's! Die App ist danach unter `http://DEINE-SERVER-IP` erreichbar.
 
-If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+### Lokale Entwicklung
 
-The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+```bash
+# Repository klonen
+git clone https://github.com/[DEIN-USERNAME]/[DEIN-REPO].git
+cd expense-tracker
 
-Follow these steps:
+# Backend starten
+cd backend
+npm install
+npm run dev
 
-```sh
-# Step 1: Clone the repository using the project's Git URL.
-git clone <YOUR_GIT_URL>
-
-# Step 2: Navigate to the project directory.
-cd <YOUR_PROJECT_NAME>
-
-# Step 3: Install the necessary dependencies.
-npm i
-
-# Step 4: Start the development server with auto-reloading and an instant preview.
+# Frontend starten (neues Terminal)
+npm install
 npm run dev
 ```
 
-**Edit a file directly in GitHub**
+## 📋 Verwendung
 
-- Navigate to the desired file(s).
-- Click the "Edit" button (pencil icon) at the top right of the file view.
-- Make your changes and commit the changes.
+1. **Ausgabe hinzufügen:** Partner auswählen, Beschreibung, Betrag und Kategorie eingeben
+2. **Saldo ansehen:** Automatische Berechnung wer wieviel ausgegeben hat
+3. **Filter:** Klick auf Partner-Kachel filtert nach diesem Partner
+4. **Löschen:** Ausgaben können über das Papierkorb-Icon gelöscht werden
 
-**Use GitHub Codespaces**
+## 🔧 Wartung
 
-- Navigate to the main page of your repository.
-- Click on the "Code" button (green button) near the top right.
-- Select the "Codespaces" tab.
-- Click on "New codespace" to launch a new Codespace environment.
-- Edit files directly within the Codespace and commit and push your changes once you're done.
+```bash
+# App aktualisieren
+cd /var/www/expense-tracker
+./update.sh
 
-## What technologies are used for this project?
+# Backup erstellen
+./backup.sh
 
-This project is built with:
+# Logs anzeigen
+pm2 logs expense-backend
+```
 
-- Vite
-- TypeScript
-- React
-- shadcn-ui
-- Tailwind CSS
+## 🏗️ Technologie-Stack
 
-## How can I deploy this project?
+- **Frontend:** React, TypeScript, Tailwind CSS, Shadcn/UI
+- **Backend:** Node.js, Express.js, SQLite
+- **Deployment:** PM2, Nginx
+- **Development:** Vite
 
-Simply open [Lovable](https://lovable.dev/projects/fe0ac5a1-9b2e-4552-a268-bd188db33333) and click on Share -> Publish.
+## 📁 Projekt-Struktur
 
-## Can I connect a custom domain to my Lovable project?
+```
+expense-tracker/
+├── src/                    # Frontend React App
+├── backend/               # Node.js Backend
+│   ├── server.js         # Express Server
+│   └── expenses.db       # SQLite Datenbank
+├── deploy.sh             # Automatisches Deployment
+├── update.sh             # Update Script
+└── backup.sh             # Backup Script
+```
 
-Yes, you can!
+## 🔒 Sicherheit
 
-To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+- Automatische Backups
+- Firewall-Konfiguration
+- SSL-ready (mit Certbot)
+- Sichere API-Endpoints
 
-Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
+## 📞 Support
+
+Bei Problemen siehe [SETUP.md](SETUP.md) für detaillierte Anweisungen oder prüfe die Logs:
+
+```bash
+pm2 logs expense-backend
+```
+
+---
+
+**Erstellt mit ❤️ für die private Ausgabenverwaltung**

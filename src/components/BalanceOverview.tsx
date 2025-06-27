@@ -31,7 +31,7 @@ export const BalanceOverview = ({ expenses, onPartnerClick, selectedPartner }: B
   };
 
   return (
-    <div className="grid grid-cols-1 md:grid-cols-5 gap-6 mb-8">
+    <div className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8">
       <Card 
         className={`shadow-md border-l-4 border-l-blue-500 cursor-pointer transition-all hover:shadow-lg hover:scale-105 ${
           selectedPartner === "Sebi" ? "ring-2 ring-blue-300 bg-blue-50" : ""
@@ -80,20 +80,6 @@ export const BalanceOverview = ({ expenses, onPartnerClick, selectedPartner }: B
           </div>
           <div className="text-sm text-gray-500 mt-1">
             Alle Ausgaben
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card className="shadow-md border-l-4 border-l-yellow-500">
-        <CardHeader className="pb-3">
-          <CardTitle className="text-sm font-medium text-gray-600">Differenz</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="text-2xl font-bold text-yellow-600">
-            {formatCurrency(difference)}
-          </div>
-          <div className="text-sm text-gray-500 mt-1">
-            {sebiTotal > alexTotal ? "Sebi liegt vorn" : alexTotal > sebiTotal ? "Alex liegt vorn" : "Ausgeglichen"}
           </div>
         </CardContent>
       </Card>
