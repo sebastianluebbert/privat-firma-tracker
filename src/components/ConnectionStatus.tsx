@@ -2,7 +2,7 @@
 import { useState, useEffect } from 'react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { AlertCircle, CheckCircle, RefreshCw } from 'lucide-react';
+import { AlertCircle, CheckCircle, RefreshCw, Terminal } from 'lucide-react';
 import { apiService } from '@/services/api';
 
 export const ConnectionStatus = () => {
@@ -57,10 +57,18 @@ export const ConnectionStatus = () => {
               )}
               
               {!isConnected && (
-                <div className="text-sm text-red-700 mt-1">
-                  <div>• Backend-Server ist nicht erreichbar</div>
-                  <div>• Starte das Backend: <code className="bg-red-100 px-1 rounded">cd backend && npm start</code></div>
-                  <div>• Oder verwende: <code className="bg-red-100 px-1 rounded">./start-backend.sh</code></div>
+                <div className="text-sm text-red-700 mt-2 space-y-1">
+                  <div className="flex items-center gap-2">
+                    <Terminal className="h-4 w-4" />
+                    <span className="font-medium">So startest du das Backend:</span>
+                  </div>
+                  <div className="ml-6 space-y-1">
+                    <div>1. <code className="bg-red-100 px-2 py-1 rounded text-xs">chmod +x start-backend.sh</code></div>
+                    <div>2. <code className="bg-red-100 px-2 py-1 rounded text-xs">./start-backend.sh</code></div>
+                  </div>
+                  <div className="text-xs text-red-600 mt-2">
+                    Oder manuell: <code className="bg-red-100 px-1 rounded">cd backend && npm install && npm start</code>
+                  </div>
                 </div>
               )}
             </div>
