@@ -6,6 +6,7 @@ import { useState } from "react";
 import { ExpenseForm } from "./ExpenseForm";
 import { ExpenseList } from "./ExpenseList";
 import { BalanceOverview } from "./BalanceOverview";
+import { ConnectionStatus } from "./ConnectionStatus";
 import type { Expense } from "@/pages/Index";
 
 interface ExpenseTrackerProps {
@@ -33,6 +34,9 @@ export const ExpenseTracker = ({ expenses, onAddExpense, onDeleteExpense }: Expe
           Verwalte und verfolge private Anschaffungen aus der Firma
         </p>
       </div>
+
+      {/* Connection Status */}
+      <ConnectionStatus />
 
       {/* Balance Overview */}
       <BalanceOverview 

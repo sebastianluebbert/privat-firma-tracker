@@ -49,10 +49,37 @@ class ApiService {
       return data;
     } catch (error) {
       console.error(`💥 Fetch Error for ${url}:`, error);
+      
+      // More specific error handling
       if (error instanceof TypeError && error.message.includes('fetch')) {
-        throw new Error(`Verbindung zum Server fehlgeschlagen. Stelle sicher, dass das Backend läuft auf ${API_BASE_URL}`);
+        // This is likely a connection refused error
+        console.error('🚫 Connection refused - Backend server is not running or not accessible');
+        console.error('💡 To fix this:');
+        console.error('1. Make sure the backend server is running on port 3001');
+        console.error('2. Check if you can access http://localhost:3001/api/health directly');
+        console.error('3. Verify the backend is properly configured');
+        
+        throw new Error(`❌ Verbindung zum Backend fehlgeschlagen! 
+        
+Der Backend-Server auf ${API_BASE_URL} ist nicht erreichbar.
+
+🔧 Lösungsschritte:
+1. Backend-Server starten: cd backend && npm start
+2. Health-Check testen: http://localhost:3001/api/health
+3. Bei Deploy-Problemen: ./deploy.sh ausführen`);
       }
       throw error;
+    }
+  }
+
+  // Add a connection test method
+  async testConnection(): Promise<boolean> {
+    try {
+      await this.checkHealth();
+      return true;
+    } catch (error) {
+      console.error('Connection test failed:', error);
+      return false;
     }
   }
 
